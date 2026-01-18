@@ -1,0 +1,102 @@
+# Password Security Rules for Scripts
+
+When creating or modifying scripts that handle passwords or sensitive data:
+
+## CRITICAL: Password Handling Security
+
+1. **NEVER pass passwords as command-line arguments**
+   - ❌ BAD: `command --password "$PASS"` or `ssh user@host "echo $PASS | command"`
+   - ✅ GOOD: `printf '%s' "$PASS" | command` or `echo "$PASS" | ssh user@host "command"`
+   - Passwords in command-line arguments appear in process lists (`ps`, `/proc/*/cmdline`)
+
+2. **Always use stdin for password passing**
+   - Use pipes (`|`) to pass passwords via stdin to remote commands
+   - Example: `echo "$PASS" | ssh user@host "sudo chpasswd"`
+   - Example: `printf '%s' "$PASS" | ssh user@host "read -r PASS && command \"\$PASS\""`
+
+3. **Disable shell history during password entry**
+   - Add `set +o history` before password prompts
+   - Add `set -o history` after password entry
+   - Set `HISTCONTROL=ignoreboth` at script start
+
+4. **Always use `read -s` for password input**
+   - Hide password input: `read -s -p "Password: " PASS`
+   - Never echo passwords: Avoid `echo "$PASS"` in output
+
+5. **Immediately unset password variables after use**
+   - Call `unset PASS` immediately after using the variable
+   - Create cleanup functions with `trap cleanup EXIT INT TERM`
+
+6. **Cleanup on script exit**
+   ```bash
+   cleanup() {
+       unset PASSWORD_VARS
+       set -o history 2>/dev/null
+   }
+   trap cleanup EXIT INT TERM
+   ```
+
+7. **For SSH commands with passwords:**
+   - ✅ GOOD: `echo "$PASS" | ssh user@host "sudo chpasswd"`
+   - ✅ GOOD: `printf '%s' "$PASS" | ssh user@host "read -r PASS && command \"\$PASS\""`
+   - ❌ BAD: `ssh user@host "command --password '$PASS'"` (password in local command line)
+   - ❌ BAD: `ssh user@host "export PASS='$PASS' && command"` (password expanded locally)
+
+8. **Environment variables:**
+   - Only use env vars for passwords if absolutely necessary
+   - Unset immediately after use
+   - Prefer stdin/pipe methods instead
+
+## Examples
+
+### Secure password change:
+```bash
+echo "$USER:$NEW_PASS" | ssh user@host "sudo chpasswd"
+unset NEW_PASS
+```
+
+### Secure password passing to remote command:
+```bash
+printf '%s' "$PASS" | ssh user@host "read -r PASS && sudo command \"\$PASS\" && unset PASS"
+unset PASS
+```
+
+### Secure password input:
+```bash
+set +o history 2>/dev/null
+read -s -p "Password: " PASS
+echo ""
+set -o history 2>/dev/null
+```
+
+### Complete secure script template:
+```bash
+#!/bin/bash
+set +o history 2>/dev/null
+HISTCONTROL=ignoreboth
+
+cleanup() {
+    unset PASSWORD_VARS
+    set -o history 2>/dev/null
+}
+trap cleanup EXIT INT TERM
+
+set +o history 2>/dev/null
+read -s -p "Password: " PASS
+echo ""
+set -o history 2>/dev/null
+
+# Use password via stdin
+echo "$PASS" | command
+
+unset PASS
+```
+
+## Enforcement
+
+When writing scripts that handle passwords:
+- Always check if passwords are passed via command-line arguments
+- Always verify passwords are passed via stdin when possible
+- Always include history protection around password input
+- Always unset password variables after use
+- Always include cleanup traps
