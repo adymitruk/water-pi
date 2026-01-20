@@ -2,6 +2,10 @@
  * This program measures and displays GPIO frequencies in real time.
  * It continuously samples all pins in a tight loop, counts transitions,
  * and updates frequencies every 100ms.
+ * 
+ * Usage:
+ *   test_sensor              - Run continuously, update every 100ms
+ *   test_sensor <milliseconds> - Run for specified duration, output once and exit
  */
 
 #include <stdio.h>
@@ -31,7 +35,16 @@ int kbhit(void) {
     return 0;
 }
 
-int main(void) {
+int main(int argc, char *argv[]) {
+    // Parse command line argument for duration
+    int duration_ms = -1;  // -1 means run continuously
+    if (argc > 1) {
+        duration_ms = atoi(argv[1]);
+        if (duration_ms <= 0) {
+            fprintf(stderr, "Invalid duration: %s. Must be a positive number of milliseconds.\n", argv[1]);
+            return 1;
+        }
+    }
     // Open GPIO chip (Pi 5: gpiochip4 is symlink to gpiochip0, which has 54 lines)
     struct gpiod_chip *chip = gpiod_chip_open("/dev/gpiochip0");
     if (!chip) {
@@ -104,30 +117,79 @@ int main(void) {
     clock_gettime(CLOCK_MONOTONIC, &start_time);
     long long start_nanos = start_time.tv_sec * 1000000000LL + start_time.tv_nsec;
     long long next_update_nanos = start_nanos + UPDATE_INTERVAL_NS;
+    long long end_nanos = -1;
+    if (duration_ms > 0) {
+        end_nanos = start_nanos + (duration_ms * 1000000LL);
+    }
     
-    // Set terminal to non-canonical mode for key detection
+    // Set terminal to non-canonical mode for key detection (only if running continuously)
     struct termios old_termios, new_termios;
     int old_flags;
-    tcgetattr(STDIN_FILENO, &old_termios);
-    new_termios = old_termios;
-    new_termios.c_lflag &= ~(ICANON | ECHO);
-    tcsetattr(STDIN_FILENO, TCSANOW, &new_termios);
-    old_flags = fcntl(STDIN_FILENO, F_GETFL, 0);
-    fcntl(STDIN_FILENO, F_SETFL, old_flags | O_NONBLOCK);
+    int terminal_configured = 0;
     
-    clear_screen();
-    printf("GPIO Frequency Monitor - Real Time\n");
-    printf("Press Ctrl+C or any key to exit\n");
-    printf("===================================\n");
-    printf("Pin | Frequency (kHz) | Status\n");
-    printf("----|-----------------|--------\n");
-    fflush(stdout);
+    if (duration_ms < 0) {
+        // Continuous mode: configure terminal for key detection
+        tcgetattr(STDIN_FILENO, &old_termios);
+        new_termios = old_termios;
+        new_termios.c_lflag &= ~(ICANON | ECHO);
+        tcsetattr(STDIN_FILENO, TCSANOW, &new_termios);
+        old_flags = fcntl(STDIN_FILENO, F_GETFL, 0);
+        fcntl(STDIN_FILENO, F_SETFL, old_flags | O_NONBLOCK);
+        terminal_configured = 1;
+        
+        clear_screen();
+        printf("GPIO Frequency Monitor - Real Time\n");
+        printf("Press Ctrl+C or any key to exit\n");
+        printf("===================================\n");
+        printf("Pin | Frequency (kHz) | Status\n");
+        printf("----|-----------------|--------\n");
+        fflush(stdout);
+    } else {
+        // Duration mode: just print header
+        printf("GPIO Frequency Monitor - Measuring for %d ms\n", duration_ms);
+        printf("============================================\n");
+        printf("Pin | Frequency (kHz) | Status\n");
+        printf("----|-----------------|--------\n");
+        fflush(stdout);
+    }
     
-    // Infinite loop: continuously read all pins as fast as possible
+    // Main loop: continuously read all pins as fast as possible
     while (1) {
-        // Check for key press (non-blocking)
-        // Note: When running via SSH, Ctrl+C works reliably, keypress may not
-        if (kbhit()) {
+        // Check if duration has elapsed (for duration mode)
+        if (duration_ms > 0) {
+            clock_gettime(CLOCK_MONOTONIC, &current_time);
+            long long current_nanos = current_time.tv_sec * 1000000000LL + current_time.tv_nsec;
+            if (current_nanos >= end_nanos) {
+                // Duration elapsed, output frequencies and exit
+                double measurement_seconds = duration_ms / 1000.0;
+                
+                printf("\n");
+                for (int i = 0; i < NUM_PINS; i++) {
+                    // Calculate frequency: flips per second, then convert to kHz
+                    double frequency_hz = (double)flip_count[i] / measurement_seconds;
+                    double frequency_khz = frequency_hz / 1000.0;  // Convert to kHz
+                    
+                    // If no flips, report 0Hz (0kHz)
+                    if (flip_count[i] == 0) {
+                        frequency_khz = 0.0;
+                    }
+                    
+                    int active = (frequency_khz > 0.0001) ? 1 : 0;  // 0.0001 kHz = 0.1 Hz
+                    
+                    printf("%3d | %14.3f | %s\n", i, frequency_khz, active ? "ACTIVE" : "inactive");
+                }
+                
+                // Cleanup and exit
+                gpiod_line_request_release(request);
+                gpiod_line_config_free(line_cfg);
+                gpiod_request_config_free(req_cfg);
+                gpiod_chip_close(chip);
+                return 0;
+            }
+        }
+        
+        // Check for key press (non-blocking) - only in continuous mode
+        if (terminal_configured && kbhit()) {
             // Cleanup GPIO lines
             gpiod_line_request_release(request);
             gpiod_line_config_free(line_cfg);
@@ -154,44 +216,46 @@ int main(void) {
             previous_value[i] = current_value;
         }
         
-        // Check if 100ms has passed
-        clock_gettime(CLOCK_MONOTONIC, &current_time);
-        long long current_nanos = current_time.tv_sec * 1000000000LL + current_time.tv_nsec;
-        
-        if (current_nanos >= next_update_nanos) {
-            // Move cursor to beginning of table data (line 5, after header on line 4)
-            printf("\033[5;1H");  // Move to line 5, column 1 (start of data rows)
+        // Check if 100ms has passed (only update display in continuous mode)
+        if (duration_ms < 0) {
+            clock_gettime(CLOCK_MONOTONIC, &current_time);
+            long long current_nanos = current_time.tv_sec * 1000000000LL + current_time.tv_nsec;
             
-            double measurement_seconds = UPDATE_INTERVAL_MS / 1000.0;
-            
-            for (int i = 0; i < NUM_PINS; i++) {
-                // Calculate frequency: flips per second, then convert to kHz
-                // Each flip is a transition, so frequency = flips / time
-                double frequency_hz = (double)flip_count[i] / measurement_seconds;
-                double frequency_khz = frequency_hz / 1000.0;  // Convert to kHz
+            if (current_nanos >= next_update_nanos) {
+                // Move cursor to beginning of table data (line 5, after header on line 4)
+                printf("\033[5;1H");  // Move to line 5, column 1 (start of data rows)
                 
-                // If no flips, report 0Hz (0kHz)
-                if (flip_count[i] == 0) {
-                    frequency_khz = 0.0;
+                double measurement_seconds = UPDATE_INTERVAL_MS / 1000.0;
+                
+                for (int i = 0; i < NUM_PINS; i++) {
+                    // Calculate frequency: flips per second, then convert to kHz
+                    // Each flip is a transition, so frequency = flips / time
+                    double frequency_hz = (double)flip_count[i] / measurement_seconds;
+                    double frequency_khz = frequency_hz / 1000.0;  // Convert to kHz
+                    
+                    // If no flips, report 0Hz (0kHz)
+                    if (flip_count[i] == 0) {
+                        frequency_khz = 0.0;
+                    }
+                    
+                    int active = (frequency_khz > 0.0001) ? 1 : 0;  // 0.0001 kHz = 0.1 Hz
+                    
+                    // Overwrite the line
+                    printf("\033[K");  // Clear to end of line
+                    printf("%3d | %14.3f | %s\n", i, frequency_khz, active ? "ACTIVE" : "inactive");
+                    
+                    // Reset flip count for next measurement period
+                    flip_count[i] = 0;
                 }
                 
-                int active = (frequency_khz > 0.0001) ? 1 : 0;  // 0.0001 kHz = 0.1 Hz
-                
-                // Overwrite the line
+                // Update status line
                 printf("\033[K");  // Clear to end of line
-                printf("%3d | %14.3f | %s\n", i, frequency_khz, active ? "ACTIVE" : "inactive");
+                printf("[Updating every %dms, sampling continuously] - Press Ctrl+C to exit\n", UPDATE_INTERVAL_MS);
+                fflush(stdout);
                 
-                // Reset flip count for next measurement period
-                flip_count[i] = 0;
+                // Set next update time
+                next_update_nanos = current_nanos + UPDATE_INTERVAL_NS;
             }
-            
-            // Update status line
-            printf("\033[K");  // Clear to end of line
-            printf("[Updating every %dms, sampling continuously] - Press Ctrl+C to exit\n", UPDATE_INTERVAL_MS);
-            fflush(stdout);
-            
-            // Set next update time
-            next_update_nanos = current_nanos + UPDATE_INTERVAL_NS;
         }
     }
     
@@ -202,7 +266,9 @@ int main(void) {
     gpiod_chip_close(chip);
     
     // Restore terminal settings (shouldn't reach here, but just in case)
-    tcsetattr(STDIN_FILENO, TCSANOW, &old_termios);
-    fcntl(STDIN_FILENO, F_SETFL, old_flags);
+    if (terminal_configured) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &old_termios);
+        fcntl(STDIN_FILENO, F_SETFL, old_flags);
+    }
     return 0;
 }
