@@ -1,0 +1,16 @@
+[Unit]
+Description=Water Pi Sensor Reader - Continuous GPIO frequency monitoring
+After=network.target
+
+[Service]
+Type=simple
+User=adam
+WorkingDirectory=/home/adam/kiosk
+ExecStart=/bin/bash /home/adam/kiosk/run_sensor.sh
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

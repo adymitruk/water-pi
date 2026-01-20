@@ -175,6 +175,11 @@
             try {
                 const response = await fetch('/api/pins');
                 const data = await response.json();
+                // Debug: log pin 17 data
+                const pin17 = data.pins.find(p => p.pin === 17);
+                if (pin17) {
+                    console.log('Pin 17 data:', pin17, 'frequency type:', typeof pin17.frequency, 'frequency value:', pin17.frequency);
+                }
                 updateDisplay(data.pins);
                 updateLastUpdateTime();
             } catch (error) {
@@ -199,7 +204,7 @@
                         <div class="pin-label">GPIO ${pin.pin}</div>
                     </div>
                     <div class="frequency">
-                        ${pin.frequency >= 1000 ? (pin.frequency / 1000).toFixed(2) : pin.frequency.toFixed(2)}<span class="frequency-unit">${pin.frequency >= 1000 ? 'kHz' : 'Hz'}</span>
+                        ${typeof pin.frequency === 'number' ? pin.frequency.toFixed(3) : parseFloat(pin.frequency || 0).toFixed(3)}<span class="frequency-unit">kHz</span>
                     </div>
                     <div class="pin-info">
                         <div>Last updated: ${formatTime(pin.timestamp || new Date(pin.unixTime * 1000).toISOString())}</div>
@@ -229,8 +234,8 @@
         // Initial load
         fetchPinData();
 
-        // Update every 2 seconds
-        updateInterval = setInterval(fetchPinData, 2000);
+        // Update every 100ms
+        updateInterval = setInterval(fetchPinData, 100);
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
