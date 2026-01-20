@@ -1,0 +1,11 @@
+[Unit]
+Description=Water Pi Sensors Script
+After=network.target
+
+[Service]
+Type=oneshot
+User=adam
+WorkingDirectory=/home/adam/kiosk
+ExecStart=/bin/bash /home/adam/kiosk/sensors.sh
+StandardOutput=journal
+StandardError=journal

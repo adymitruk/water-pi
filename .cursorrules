@@ -100,3 +100,14 @@ When writing scripts that handle passwords:
 - Always include history protection around password input
 - Always unset password variables after use
 - Always include cleanup traps
+
+## my kiosk info
+
+my kiosk is a chromium browser running in kiosk mode on a raspberry pi.
+it is used to display a web page on a screen.
+it's found on the local network via ssh adam@raspberrypi.local 
+it can conncet without a password because it's setup with a ssh key.
+
+it's running on a raspberry pi 5 model b with 8gb of ram.
+
+any instructions to test the scripts, do them on the pi

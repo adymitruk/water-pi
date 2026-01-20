@@ -1,0 +1,10 @@
+# Raspberry Pi SSH Connection (for local scripts to connect to the Pi)
+PI_HOST=raspberrypi.local
+PI_USER=adam
+
+# Full SSH connection string (use this for SSH commands)
+PI_CONNECTION=${PI_USER}@${PI_HOST}
+
+# Scripts home directory on the Pi
+PI_SCRIPTS_HOME=/home/${PI_USER}
+

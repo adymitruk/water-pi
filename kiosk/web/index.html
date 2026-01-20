@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPIO Pin Frequencies</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            min-height: 100vh;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding: 20px;
+        }
+
+        h1 {
+            font-size: 3em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .last-update {
+            margin-top: 10px;
+            font-size: 0.9em;
+            opacity: 0.8;
+        }
+
+        .pins-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .pin-card {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.2);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .pin-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.2);
+        }
+
+        .pin-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .pin-number {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .pin-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            background: rgba(255,255,255,0.2);
+            padding: 4px 12px;
+            border-radius: 12px;
+        }
+
+        .frequency {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 15px 0;
+            text-align: center;
+            color: #ffd700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .frequency-unit {
+            font-size: 0.5em;
+            opacity: 0.9;
+            margin-left: 5px;
+        }
+
+        .pin-info {
+            font-size: 0.85em;
+            opacity: 0.8;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .no-pins {
+            text-align: center;
+            padding: 60px 20px;
+            font-size: 1.5em;
+            opacity: 0.8;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 1.2em;
+        }
+
+        .spinner {
+            border: 4px solid rgba(255,255,255,0.3);
+            border-top: 4px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2em;
+            }
+            .pins-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>GPIO Pin Frequencies</h1>
+            <div class="subtitle">Active Pin Monitoring</div>
+            <div class="last-update" id="lastUpdate">Loading...</div>
+        </header>
+
+        <div id="content">
+            <div class="loading">
+                <div class="spinner"></div>
+                <div>Loading pin data...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let updateInterval;
+
+        async function fetchPinData() {
+            try {
+                const response = await fetch('/api/pins');
+                const data = await response.json();
+                updateDisplay(data.pins);
+                updateLastUpdateTime();
+            } catch (error) {
+                console.error('Error fetching pin data:', error);
+                document.getElementById('content').innerHTML = 
+                    '<div class="no-pins">Error loading pin data. Please check the server.</div>';
+            }
+        }
+
+        function updateDisplay(pins) {
+            const content = document.getElementById('content');
+            
+            if (pins.length === 0) {
+                content.innerHTML = '<div class="no-pins">No active pins detected</div>';
+                return;
+            }
+
+            const pinsHtml = pins.map(pin => `
+                <div class="pin-card">
+                    <div class="pin-header">
+                        <div class="pin-number">Pin ${pin.pin}</div>
+                        <div class="pin-label">GPIO ${pin.pin}</div>
+                    </div>
+                    <div class="frequency">
+                        ${pin.frequency >= 1000 ? (pin.frequency / 1000).toFixed(2) : pin.frequency.toFixed(2)}<span class="frequency-unit">${pin.frequency >= 1000 ? 'kHz' : 'Hz'}</span>
+                    </div>
+                    <div class="pin-info">
+                        <div>Last updated: ${formatTime(pin.timestamp || new Date(pin.unixTime * 1000).toISOString())}</div>
+                        ${pin.measurementTime ? `<div>Measurement: ${pin.measurementTime}ms</div>` : ''}
+                    </div>
+                </div>
+            `).join('');
+
+            content.innerHTML = `<div class="pins-grid">${pinsHtml}</div>`;
+        }
+
+        function formatTime(timestamp) {
+            try {
+                const date = new Date(timestamp);
+                return date.toLocaleString();
+            } catch (e) {
+                return timestamp;
+            }
+        }
+
+        function updateLastUpdateTime() {
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = 
+                `Last update: ${now.toLocaleTimeString()}`;
+        }
+
+        // Initial load
+        fetchPinData();
+
+        // Update every 2 seconds
+        updateInterval = setInterval(fetchPinData, 2000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (updateInterval) {
+                clearInterval(updateInterval);
+            }
+        });
+    </script>
+</body>
+</html>
